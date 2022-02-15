@@ -29,8 +29,23 @@ def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float) -> Tensor:
     Returns:
         An [H x W] heatmap tensor, normalized such that its peak is 1.
     """
-    # TODO: Replace this stub code.
-    return torch.zeros_like(grid_coords[:, :, 0], dtype=torch.float)
+    output = torch.zeros_like(grid_coords[:, :, 0], dtype=torch.float)
+    print(grid_coords.shape)
+
+    H, W, _ = grid_coords.size()
+    cx = center[0].long()
+    cy = center[1].long()
+
+    for h in range(H):
+        for w in range(W):
+            x = grid_coords[h, w, 0].long()
+            y = grid_coords[h, w, 1].long()
+            ss = math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / scale)
+
+            output[h, w] = ss
+
+    output = torch.sigmoid(output)
+    return output
 
 
 class DetectionLossTargetBuilder:
@@ -91,6 +106,13 @@ class DetectionLossTargetBuilder:
         W_coords, H_coords = torch.arange(W), torch.arange(H)
         H_grid_coords, W_grid_coords = torch.meshgrid(H_coords, W_coords, indexing="ij")
         grid_coords = torch.stack([W_grid_coords, H_grid_coords], dim=-1)  # [H x W x 2]
+
+        # for i in range(H_coords):
+        #     for j in range(W_coords):
+        #         offset_x = cx - i
+        #         offset_y = cy -j
+        #         grid_coords[j,i,0] = offset_x
+        #         grid_coords[j,i,1] = offset_y
 
         # 2. Create heatmap training targets by invoking the `create_heatmap` function.
         center = torch.tensor([cx, cy])
