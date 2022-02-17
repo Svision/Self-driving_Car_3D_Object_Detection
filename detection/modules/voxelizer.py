@@ -74,7 +74,7 @@ class Voxelizer(torch.nn.Module):
         Returns:
             BEV occupacy image as a [batch_size x D x H x W] tensor.
         """
-
+        # DONE: Replace this stub code.
         output = torch.zeros(
             (len(pointclouds), self._depth, self._height, self._width),
             dtype=torch.bool,
