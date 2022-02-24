@@ -30,21 +30,16 @@ def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float) -> Tensor:
         An [H x W] heatmap tensor, normalized such that its peak is 1.
     """
     # DONE: Replace this stub code.
-    output = torch.zeros_like(grid_coords[:, :, 0], dtype=torch.float)
-
-    H, W, _ = grid_coords.size()
+    H, W, _ = grid_coords.shape
     cx = center[0].long()
     cy = center[1].long()
+    cxx = cx.repeat(H * W).reshape(H, W)
+    cyy = cy.repeat(H * W).reshape(H, W)
 
-    for h in range(H):
-        for w in range(W):
-            x = grid_coords[h, w, 0].long()
-            y = grid_coords[h, w, 1].long()
-            ss = math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / scale)
-
-            output[h, w] = ss
-
-    output = torch.sigmoid(output)
+    x_coors = grid_coords[:, :, 0]
+    y_coors = grid_coords[:, :, 1]
+    output_raw = torch.exp(-((cxx-x_coors)**2 + (cyy-y_coors)**2) / scale)
+    output = torch.sigmoid(output_raw)
     return output
 
 
