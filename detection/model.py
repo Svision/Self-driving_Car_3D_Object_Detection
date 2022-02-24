@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor, nn
+import numpy as np
 
 from detection.modules.loss_function import DetectionLossConfig
 from detection.modules.residual_block import ResidualBlock
@@ -117,6 +118,40 @@ class DetectionModel(nn.Module):
             A set of 2D bounding box detections.
         """
         # TODO: Replace this stub code.
+        D, H, W = bev_lidar.shape
+        # step1:
+        # (heatmap, offset_x, offset_y, x_size, y_size, sin_theta, cos_theta)
+        X = self.forward(bev_lidar.view((1, D, H, W)))[0]  # 7 x H x W
+
+        # step2:
+        heatmap = X[0, :, :]  # H x W
+        maxpool2d = torch.nn.MaxPool2d(5, stride=1, padding=2)
+        maxpooled_heatmap = maxpool2d(heatmap)
+        mask = torch.eq(heatmap, maxpooled_heatmap)
+        scores, indices = torch.topk(input=(heatmap * mask).flatten(), k=k)
+        top_k_scores = scores.reshape((k, 1))
+        top_k_indices = Tensor(np.unravel_index(indices=indices.numpy(), shape=heatmap.shape)).T  # k x 2 -> (i, j)
+
+        # step3:
+        offsets_xy = torch.stack([X[1, :, :], X[2, :, :]], dim=0).permute(1, 2, 0)
+        centroids = top_k_indices + offsets_xy[top_k_indices]
+
+        # step4:
+        sizes_xy = torch.stack([X[3, :, :], X[4, :, :]], dim=0).permute(1, 2, 0)
+        boxes = sizes_xy[top_k_indices]
+
+        # step5:
+        theta_sin_cos = torch.stack([X[5, :, :], X[6, :, :]], dim=0).permute(1, 2, 0)
+        yaws = theta_sin_cos[top_k_indices]
+
+        # step6:
+        # ref: https://stackoverflow.com/questions/57570043/filter-data-in-pytorch-tensor
+        raw = torch.cat([centroids, yaws, boxes, top_k_scores], dim=-1)  # k x 6
+        mask = raw[:, 5] > score_threshold
+        indices = torch.nonzero(mask)
+        filtered = raw[indices]
+        print(filtered)
+
         return Detections(
-            torch.zeros((0, 3)), torch.zeros(0), torch.zeros((0, 2)), torch.zeros(0)
+            filtered[:, :2], filtered[:, 2], filtered[:, 3:5], filtered[:, 5]
         )
