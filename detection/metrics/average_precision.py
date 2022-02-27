@@ -32,7 +32,7 @@ class AveragePrecisionMetric:
 
 
 def compute_precision_recall_curve(
-    frames: List[EvaluationFrame], threshold: float
+        frames: List[EvaluationFrame], threshold: float
 ) -> PRCurve:
     """Compute a precision/recall curve over a batch of evaluation frames.
 
@@ -61,8 +61,73 @@ def compute_precision_recall_curve(
     Returns:
         A precision/recall curve.
     """
+
     # TODO: Replace this stub code.
-    return PRCurve(torch.zeros(0), torch.zeros(0))
+    @dataclass
+    class Matching:
+        scores: torch.Tensor  # N dimensional, scores of all detections
+        true_positives: torch.Tensor  # N dimensional, detections with a match has a 1, otherwise 0
+        false_negatives: torch.Tensor  # M dimensional, labels without a match has a 1, otherwise 0
+
+    @dataclass
+    class BatchedMatching:
+        scores: torch.Tensor  # sum(len(a single matching.scores)) dimensional, scores of all detections in the batch
+        true_positives: torch.Tensor  # sum(len(a single matching.true_positives)) dimensional
+        false_negatives: torch.Tensor  # sum(len(a single matching.false_negatives)) dimensional
+
+        def __init__(self, matchings: List[Matching]):
+            self.scores = torch.cat([matching.scores for matching in matchings])
+            self.true_positives = torch.cat([matching.true_positives for matching in matchings])
+            self.false_negatives = torch.cat([matching.false_negatives for matching in matchings])
+
+    batch_size = len(frames)
+    matching_list = []
+    for frame in frames:
+        detections = frame.detections
+        labels = frame.labels
+        scores = detections.scores
+
+        true_positives = torch.zeros(len(detections))
+        false_negatives = torch.zeros(len(labels))
+
+        label_detections_map = {}  # a dictionary store all detections within the threshold of the label
+        # a dictionary store the highest score among all detections within the threshold of the label
+        label_highest_score_map = {}
+
+        # parse the label_detections_map and label_highest_score_map
+        for i, label_centroid in enumerate(labels.centroids):
+            distance_map = torch.linalg.norm(detections.centroids - label_centroid, dim=1)  # N dimensional
+            true_map = distance_map <= threshold  # N dimensional
+            # https://stackoverflow.com/questions/57570043/filter-data-in-pytorch-tensor
+            indices = torch.nonzero(true_map)
+            if torch.count_nonzero(true_map):
+                label_detections_map[label_centroid] = detections.centroids[indices]
+                label_highest_score_map[label_centroid] = torch.max(true_map * scores)
+            else:
+                false_negatives[i] = 1
+
+        # for each detection, generate the Matching class
+        for j, detection_centroid in enumerate(detections.centroids):
+            for label in label_detections_map.keys():
+                if detection_centroid in label_detections_map[label] and scores[j] == label_highest_score_map[label]:
+                    true_positives[j] = 1
+
+        matching_list.append(Matching(scores, true_positives, false_negatives))
+
+    # Having batch_size of Matching, generate a BatchedMatching class for precision/recall calculation
+    all_matching = BatchedMatching(matching_list)
+    all_matching.scores, sorted_indices = torch.sort(all_matching.scores, descending=True)
+    all_matching.true_positives = all_matching.true_positives[sorted_indices]
+    all_matching.false_negatives = all_matching.false_negatives[sorted_indices]
+    precisions = torch.zeros(len(all_matching.scores))  # precision = TP / (TP + FP)
+    recalls = torch.zeros(len(all_matching.scores))  # recall = TP / (TP + FN)
+    for n in range(len(all_matching.scores)):
+        TP = torch.count_nonzero(all_matching.true_positives[:n + 1])
+        FN = torch.count_nonzero(all_matching.false_negatives[:n + 1])
+        precisions[n] = TP / (n + 1)
+        recalls[n] = TP / (TP + FN)
+
+    return PRCurve(precisions, recalls)
 
 
 def compute_area_under_curve(curve: PRCurve) -> float:
@@ -81,11 +146,14 @@ def compute_area_under_curve(curve: PRCurve) -> float:
         The area under the curve, as defined above.
     """
     # TODO: Replace this stub code.
-    return torch.sum(curve.recall).item() * 0.0
+    # N dimensional, each is (r_i - r_{i - 1})
+    recall_diff = curve.recall - torch.cat((torch.Tensor([0]), curve.recall[: len(curve.recall) - 1]))
+    area = torch.sum(curve.precision * recall_diff).float()
+    return area
 
 
 def compute_average_precision(
-    frames: List[EvaluationFrame], threshold: float
+        frames: List[EvaluationFrame], threshold: float
 ) -> AveragePrecisionMetric:
     """Compute average precision over a batch of evaluation frames.
 

@@ -124,34 +124,35 @@ class DetectionModel(nn.Module):
         X = self.forward(bev_lidar.view((1, D, H, W)))[0]  # 7 x H x W
 
         # step2:
-        heatmap = X[0, :, :]  # H x W
+        heatmap = X[None, 0, :, :]  # 1 x H x W
         maxpool2d = torch.nn.MaxPool2d(5, stride=1, padding=2)
         maxpooled_heatmap = maxpool2d(heatmap)
         mask = torch.eq(heatmap, maxpooled_heatmap)
         scores, indices = torch.topk(input=(heatmap * mask).flatten(), k=k)
         top_k_scores = scores.reshape((k, 1))
-        top_k_indices = Tensor(np.unravel_index(indices=indices.numpy(), shape=heatmap.shape)).T  # k x 2 -> (i, j)
+        top_k_indices = Tensor(np.unravel_index(indices=indices.numpy(), shape=(H, W))).T.long()  # k x 2 -> (i, j)
 
         # step3:
-        offsets_xy = torch.stack([X[1, :, :], X[2, :, :]], dim=0).permute(1, 2, 0)
-        centroids = top_k_indices + offsets_xy[top_k_indices]
+        offsets_xy = torch.stack([X[1, :, :], X[2, :, :]], dim=0).permute(1, 2, 0)  # H x W x 2
+        centroids = top_k_indices + offsets_xy[top_k_indices[:, 0], top_k_indices[:, 1]]  # k x 2
 
         # step4:
         sizes_xy = torch.stack([X[3, :, :], X[4, :, :]], dim=0).permute(1, 2, 0)
-        boxes = sizes_xy[top_k_indices]
+        boxes = sizes_xy[top_k_indices[:, 0], top_k_indices[:, 1]]  # k x 2
 
         # step5:
-        theta_sin_cos = torch.stack([X[5, :, :], X[6, :, :]], dim=0).permute(1, 2, 0)
-        yaws = theta_sin_cos[top_k_indices]
+        sin = X[5:6, :, :].permute(1, 2, 0)
+        cos = X[6:7, :, :].permute(1, 2, 0)
+        yaws = torch.atan2(sin[top_k_indices[:, 0], top_k_indices[:, 1]], cos[top_k_indices[:, 0], top_k_indices[:, 1]])  # k x 1
 
         # step6:
         # ref: https://stackoverflow.com/questions/57570043/filter-data-in-pytorch-tensor
         raw = torch.cat([centroids, yaws, boxes, top_k_scores], dim=-1)  # k x 6
-        mask = raw[:, 5] > score_threshold
-        indices = torch.nonzero(mask)
-        filtered = raw[indices]
-        print(filtered)
+        print("raw:", raw.shape)
+        filtered = raw[raw[:, 5] > score_threshold]
+        print("filtered:", filtered.shape)
+        print("Detections:", filtered[:, 0:2].shape, filtered[:, 2].shape, filtered[:, 3:5].shape, filtered[:, 5].shape)
 
         return Detections(
-            filtered[:, :2], filtered[:, 2], filtered[:, 3:5], filtered[:, 5]
+            filtered[:, 0:2], filtered[:, 2], filtered[:, 3:5], filtered[:, 5]
         )
