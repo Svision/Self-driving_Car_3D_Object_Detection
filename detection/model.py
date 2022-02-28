@@ -131,7 +131,7 @@ class DetectionModel(nn.Module):
         scores, indices = torch.topk(input=(heatmap * mask).flatten(), k=k)
         top_k_scores = scores.reshape((k, 1))
         # top_k_indices = Tensor(np.unravel_index(indices=indices.numpy(), shape=(H, W))).T.long()  # k x 2 -> (i, j)
-        top_k_indices = Tensor([[torch.div(index, W, rounding_mode='floor'), index % W] for index in indices]).long()
+        top_k_indices = Tensor([[torch.div(index, W, rounding_mode='floor'), index % W] for index in indices]).long().cuda()
 
         # step3:
         offsets_xy = torch.stack([X[1, :, :], X[2, :, :]], dim=0).permute(1, 2, 0)  # H x W x 2
