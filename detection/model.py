@@ -134,7 +134,7 @@ class DetectionModel(nn.Module):
         top_k_indices = Tensor([[torch.div(index, W, rounding_mode='floor'), index % W] for index in indices]).long().cuda()
 
         # step3:
-        offsets_xy = torch.stack([X[1, :, :], X[2, :, :]], dim=0).permute(1, 2, 0)  # H x W x 2
+        offsets_xy = torch.stack([X[2, :, :], X[1, :, :]], dim=0).permute(1, 2, 0)  # H x W x 2
         centroids = top_k_indices + offsets_xy[top_k_indices[:, 0], top_k_indices[:, 1]]  # k x 2
 
         # step4:
