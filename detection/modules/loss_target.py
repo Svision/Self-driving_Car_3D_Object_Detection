@@ -100,7 +100,7 @@ class DetectionLossTargetBuilder:
         # containing the elements (0, 0), (0, 1), (0, 2), ..., (1, 2).
         W_coords, H_coords = torch.arange(W), torch.arange(H)
         H_grid_coords, W_grid_coords = torch.meshgrid(H_coords, W_coords, indexing="ij")
-        grid_coords = torch.stack([W_grid_coords, H_grid_coords], dim=-1)  # [H x W x 2]
+        grid_coords = torch.stack([W_grid_coords, H_grid_coords], dim=-1)  # [H x W x 2] -> (i, j)
 
         # 2. Create heatmap training targets by invoking the `create_heatmap` function.
         center = torch.tensor([cx, cy])
@@ -115,11 +115,6 @@ class DetectionLossTargetBuilder:
 
         # DONE: Replace this stub code.
         offsets = torch.zeros(H, W, 2)
-        for i in range(H):
-            for j in range(W):
-                if heatmap[i, j] > self._heatmap_threshold:
-                    offsets[i, j, 0] = cx - i
-                    offsets[i, j, 1] = cy - j
 
         # 4. Create box size training target.
         # Given the label's bounding box size (x_size, y_size), the target size at pixel (i, j)
@@ -129,25 +124,22 @@ class DetectionLossTargetBuilder:
 
         # DONE: Replace this stub code.
         sizes = torch.zeros(H, W, 2)
+        headings = torch.zeros(H, W, 2)
         for i in range(H):
             for j in range(W):
                 if heatmap[i, j] > self._heatmap_threshold:
+                    offsets[i, j, 0] = cx - i
+                    offsets[i, j, 1] = cy - j
                     sizes[i, j, 0] = x_size
                     sizes[i, j, 1] = y_size
+                    headings[i, j, 0] = math.sin(yaw)
+                    headings[i, j, 1] = math.cos(yaw)
 
         # 5. Create heading training targets.
         # Given the label's heading angle yaw, the target heading at pixel (i, j)
         # equals (sin(yaw), cos(yaw)) if the heatmap value at (i, j) exceeds self._heatmap_threshold.
         # If the heatmap value at (i, j) is less than or equal to self._heatmap_threshold,
         # the target heading equals (0, 0) instead.
-
-        # DONE: Replace this stub code.
-        headings = torch.zeros(H, W, 2)
-        for i in range(H):
-            for j in range(W):
-                if heatmap[i, j] > self._heatmap_threshold:
-                    headings[i, j, 0] = math.sin(yaw)
-                    headings[i, j, 1] = math.cos(yaw)
 
         # 6. Concatenate training targets into a [7 x H x W] tensor.
         targets = torch.cat([heatmap[:, :, None], offsets, sizes, headings], dim=-1)
