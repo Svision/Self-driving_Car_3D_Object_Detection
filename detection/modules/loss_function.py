@@ -30,10 +30,12 @@ def heatmap_weighted_mse_loss(
     """
     # DONE: Replace this stub code.
     N, C, H, W = targets.shape
-    mse_loss = torch.linalg.norm(predictions - targets, axis=1) / C   # NxHxW
-    bit_mask = (heatmap > heatmap_threshold).long()  # Nx1xHxW
-    masked_weight = (bit_mask * heatmap).reshape((N, H, W))  # NxHxW
-    mse_final = torch.sum(mse_loss * masked_weight) / torch.count_nonzero(bit_mask)
+    mse_loss = torch.sum((targets - predictions) ** 2, dim=1)   # NxHxW
+    # bit_mask = (heatmap > heatmap_threshold).long()  # Nx1xHxW
+    # masked_weight = (bit_mask * heatmap).reshape((N, H, W))  # NxHxW
+    mask = torch.zeros((N, H, W))
+    mask[heatmap.view((N, H, W)) > heatmap_threshold] = 1
+    mse_final = torch.mean(mse_loss * mask * heatmap.view((N, H, W)))
 
     return mse_final
 

@@ -125,7 +125,7 @@ def compute_precision_recall_curve(
         TP = torch.count_nonzero(all_matching.true_positives[:n + 1])
         FN = torch.count_nonzero(all_matching.false_negatives[:n + 1])
         precisions[n] = TP / (n + 1)
-        recalls[n] = TP / (TP + FN)
+        recalls[n] = TP / len(all_matching.false_negatives)
 
     return PRCurve(precisions, recalls)
 
