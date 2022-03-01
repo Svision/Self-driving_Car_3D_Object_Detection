@@ -116,7 +116,43 @@ class DetectionModel(nn.Module):
         Returns:
             A set of 2D bounding box detections.
         """
-        # TODO: Replace this stub code.
+        # Done: Replace this stub code.
+        D, H, W = bev_lidar.shape
+        # step1:
+        # (heatmap, offset_x, offset_y, x_size, y_size, sin_theta, cos_theta)
+        X = self.forward(bev_lidar.view((1, D, H, W)))[0]  # 7 x H x W
+
+        # step2:
+        heatmap = X[None, 0, :, :]  # 1 x H x W
+        maxpool = torch.nn.MaxPool2d(5, stride=1, padding=2)
+        maxpooled_heatmap = maxpool(heatmap)
+        maxpooled_heatmap[maxpooled_heatmap != heatmap] = float('-inf')
+        # mask = heatmap == maxpooled_heatmap
+        scores, indices = torch.topk(maxpooled_heatmap.flatten(), k=k)
+        top_k_scores = scores.reshape((k, 1))  # k x 1
+        # convert 1D indices back to 2D
+        top_k_indices = Tensor([[torch.div(index, W, rounding_mode='floor'), index % W] for index in indices]).long().cuda()  # k x 2 -> (i, j)
+
+        # step3:
+        offsets_ij = torch.stack([X[2, :, :], X[1, :, :]], dim=0).permute(1, 2, 0)  # H x W x 2 -> (i, j)
+        offsets_yx = offsets_ij[top_k_indices[:, 0], top_k_indices[:, 1]]
+        centroids = top_k_indices + offsets_yx  # k x 2 -> (y, x)
+        centroids = torch.column_stack([centroids[:, 1], centroids[:, 0]])
+
+        # step4:
+        sizes_xy = torch.stack([X[3, :, :], X[4, :, :]], dim=0).permute(1, 2, 0)
+        boxes = sizes_xy[top_k_indices[:, 0], top_k_indices[:, 1]]  # k x 2
+
+        # step5:
+        sin = X[5:6, :, :].permute(1, 2, 0)
+        cos = X[6:7, :, :].permute(1, 2, 0)
+        yaws = torch.atan2(sin[top_k_indices[:, 0], top_k_indices[:, 1]], cos[top_k_indices[:, 0], top_k_indices[:, 1]])  # k x 1
+
+        # step6:
+        # ref: https://stackoverflow.com/questions/57570043/filter-data-in-pytorch-tensor
+        raw = torch.cat([centroids, yaws, boxes, top_k_scores], dim=-1)  # k x 6
+        filtered = raw[raw[:, 5] > score_threshold]
+
         return Detections(
-            torch.zeros((0, 3)), torch.zeros(0), torch.zeros((0, 2)), torch.zeros(0)
+            filtered[:, 0:2], filtered[:, 2], filtered[:, 3:5], filtered[:, 5]
         )
