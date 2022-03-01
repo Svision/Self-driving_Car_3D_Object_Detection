@@ -74,7 +74,6 @@ def compute_precision_recall_curve(
             self.true_positives = torch.cat([matching.true_positives for matching in matchings])
             self.false_negatives = torch.cat([matching.false_negatives for matching in matchings])
 
-    batch_size = len(frames)
     matching_list = []
     for frame in frames:
         detections = frame.detections
@@ -82,31 +81,58 @@ def compute_precision_recall_curve(
         scores = detections.scores
 
         true_positives = torch.zeros(len(detections))
-        false_negatives = torch.zeros(len(labels))
+        false_negatives = torch.ones(len(labels))
 
-        label_detections_map = {}  # a dictionary store all detections within the threshold of the label
-        # a dictionary store the highest score among all detections within the threshold of the label
-        label_highest_score_map = {}
+        label_detections_map = {}  # a dictionary store all detections within the threshold of the
+        label_scores_map = {}  # a dictionary store the scores of all detections within the threshold of the label
 
         # parse the label_detections_map and label_highest_score_map
         for i, label_centroid in enumerate(labels.centroids):
             distance_map = torch.linalg.norm(detections.centroids - label_centroid, dim=1)  # N dimensional
             true_map = distance_map <= threshold  # N dimensional
-            # https://stackoverflow.com/questions/57570043/filter-data-in-pytorch-tensor
-            indices = torch.nonzero(true_map)
             if torch.count_nonzero(true_map):
-                label_detections_map[label_centroid] = detections.centroids[indices]
-                label_highest_score_map[label_centroid] = torch.max(true_map * scores)
-            else:
-                false_negatives[i] = 1
+                indices = torch.nonzero(true_map)
+                label_scores_map[label_centroid], ascending_indices = detections.scores[indices].sort()
+                label_detections_map[label_centroid] = detections.centroids[indices][ascending_indices]
 
-        # for each detection, generate the Matching class
+        detection_closest_label_map = {}  # a dictionary maps a detection with its closest label
+        detection_labels_map = {}  # a dictionary maps a detection with all labels within distance threshold
         for j, detection_centroid in enumerate(detections.centroids):
-            for label in label_detections_map.keys():
-                if detection_centroid in label_detections_map[label] and scores[j] == label_highest_score_map[label]:
-                    true_positives[j] = 1
+            distance_map = torch.linalg.norm(labels.centroids - detection_centroid, dim=1)  # M dimensional
+            true_map = distance_map <= threshold  # M dimension
+            if torch.count_nonzero(true_map):
+                indices = torch.nonzero(true_map)
+                detection_labels_map[detection_centroid] = labels.centroids[indices]
+                min_distance_coord = torch.argmin(distance_map)
+                detection_closest_label_map[detection_centroid] = labels.centroids[min_distance_coord]
 
-        matching_list.append(Matching(scores, true_positives, false_negatives))
+        # sort all detections with scores in descending order:
+        sorted_scores, sorted_scores_indices = torch.sort(scores, descending=True)
+        detections.centroids = detections.centroids[sorted_scores_indices]
+        sorted_true_positives = true_positives[sorted_scores_indices] 
+
+        """
+        If the distance between the detection and the first label is greater than the threshold, 
+        then the detection must be a false positive. Otherwise, if the label had been matched against another detection 
+        previously, then the detection is a false positive. If both of these checks fail, 
+        then the detection is a true positive.
+        """
+        # for each detection, generate the Matching class
+        for k, detection_centroid in enumerate(detections.centroids):
+            closest_label = detection_closest_label_map[detection_centroid]
+            if sorted_scores[k] == label_scores_map[closest_label][-1]:  # the last element is the highest score
+                sorted_true_positives[k] = 1
+                closest_label_index = (labels.centroids == closest_label).nonzero()[0]
+                false_negatives[closest_label_index] = 0  # a match should flip the label to a TP
+                label_detections_map.pop(closest_label)
+                label_scores_map.pop(closest_label)
+            # whether it has a match or not we will delete its centroid and score from all label_*_map contain it
+            matched_labels = detection_labels_map[detection_centroid]
+            for l in matched_labels:
+                label_detections_map[l] = (label_detections_map[l])[:-1]
+                label_scores_map[l] = (label_scores_map[l])[:-1]
+
+        matching_list.append(Matching(sorted_scores, sorted_true_positives, false_negatives))
 
     # Having batch_size of Matching, generate a BatchedMatching class for precision/recall calculation
     all_matching = BatchedMatching(matching_list)
@@ -117,10 +143,8 @@ def compute_precision_recall_curve(
     recalls = torch.zeros(len(all_matching.scores))  # recall = TP / (TP + FN)
     for n in range(len(all_matching.scores)):
         TP = torch.count_nonzero(all_matching.true_positives[:n + 1])
-        # FN = torch.count_nonzero(all_matching.false_negatives[:n + 1])
         precisions[n] = TP / (n + 1)
         recalls[n] = TP / len(all_matching.false_negatives)
-
     return PRCurve(precisions, recalls)
 
 
