@@ -87,7 +87,7 @@ class Voxelizer(torch.nn.Module):
                 zz = torch.clamp(pointclouds[l][n, 2], self._z_min, self._z_max - 1e-5)
                 yy = pointclouds[l][n, 1]
                 xx = pointclouds[l][n, 0]
-                if (self._x_min <= xx <= self._x_max) and (self._y_min <= yy <= self._y_max):
+                if (self._x_min <= xx <= self._x_max - 1e-5) and (self._y_min <= yy <= self._y_max - 1e-5):
                     i = math.floor((zz - self._z_min) / self._step)
                     j = math.floor((self._y_max - yy) / self._step)
                     k = math.floor((xx - self._x_min) / self._step)
