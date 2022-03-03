@@ -3,12 +3,13 @@ from typing import Tuple
 
 import torch
 from torch import Tensor
+import torch.nn.functional
 
 from detection.modules.loss_function import DetectionLossConfig
 from detection.types import Detections
 
 
-def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float) -> Tensor:
+def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float, yaw: float, x_size: float, y_size: float) -> Tensor:
     """Return a heatmap based on a Gaussian kernel with center `center` and scale `scale`.
 
     Specifically, each pixel with coordinates (x, y) is assigned a heatmap value
@@ -31,14 +32,18 @@ def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float) -> Tensor:
     """
     # DONE: Replace this stub code.
     H, W, _ = grid_coords.shape
-    cx = center[0].long()
-    cy = center[1].long()
+    cx = center[0]
+    cy = center[1]
     x_coors = grid_coords[:, :, 0]
     y_coors = grid_coords[:, :, 1]
 
-    output_raw = torch.exp(-((x_coors - cx)**2 + (y_coors - cy)**2) / scale)
+    cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+    scale_x, scale_y = (x_size**2) / scale, (y_size**2) / scale
+    xn, yn = x_coors - cx, y_coors - cy
+    output_raw = torch.exp(-(((cos_yaw * xn + sin_yaw * yn)**2 / scale_x) + ((-sin_yaw * xn + cos_yaw * yn)**2 / scale_y)))
+    # output_raw = torch.exp(-(xn**2 + yn**2) / scale)  # original
     # normalize
-    output = torch.clamp(output_raw, max=1)
+    output = output_raw / torch.max(output_raw)
 
     return output
 
@@ -105,7 +110,7 @@ class DetectionLossTargetBuilder:
         # 2. Create heatmap training targets by invoking the `create_heatmap` function.
         center = torch.tensor([cx, cy])
         scale = (x_size ** 2 + y_size ** 2) / self._heatmap_norm_scale
-        heatmap = create_heatmap(grid_coords, center=center, scale=scale)  # [H x W]
+        heatmap = create_heatmap(grid_coords, center=center, scale=self._heatmap_norm_scale, yaw=yaw, x_size=x_size, y_size=y_size)  # [H x W]
 
         # 3. Create offset training targets.
         # Given the label's center (cx, cy), the target offset at pixel (i, j) equals
