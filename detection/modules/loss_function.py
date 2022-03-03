@@ -3,6 +3,7 @@ from typing import Tuple
 
 import torch
 from torch import Tensor
+import torch.nn.functional as F
 
 
 def heatmap_weighted_mse_loss(
@@ -40,6 +41,38 @@ def heatmap_weighted_mse_loss(
     mse_final = torch.mean(mse_loss * masked_weight)
 
     return mse_final
+
+
+def focal_loss(
+    targets: Tensor, predictions: Tensor, alpha: float = 0.25, gamma: float = 2
+) -> float:
+    """Compute the focal loss between `predictions` and `targets`, weighted by a heatmap.
+    Specifically, the heatmap-weighted focal loss can be computed as follows:
+    1. Compute the focal loss between `predictions` and `targets` along the C dimension.
+        This should give us a [batch_size x H x W] tensor `mse_loss`.
+    2. Compute a binary mask based on whether the values of `heatmap` exceeds `heatmap_threshold`.
+        This should give us a [batch_size x H x W] tensor `mask`.
+    3. Compute the mean of `focal_loss` weighted by `heatmap` and masked by `mask`.
+        This gives us our final scalar loss.
+    Args:
+        targets: A [batch_size x C x H x W] tensor, containing the ground truth targets.
+        predictions: A [batch_size x C x H x W] tensor, containing the predictions.
+        gamma: controls the shape of the curve. The higher the value of γ,
+               the lower the loss for well-classified examples.
+        alpha: give high weights to the rare class and small weights to the dominating or common class.
+    Returns:
+        A scalar MSE loss between `predictions` and `targets`, aggregated as a
+            weighted average using the provided `heatmap`.
+    """
+    # ref: https://amaarora.github.io/2020/06/29/FocalLoss.html
+    alpha = torch.tensor([alpha, 1-alpha]).cuda()
+    BCE_loss = F.binary_cross_entropy_with_logits(predictions, targets)
+    targets = targets.type(torch.long)
+    at = alpha.gather(0, targets.data.view(-1))
+    pt = torch.exp(-BCE_loss)
+    focal_loss = at * (1 - pt) ** gamma * BCE_loss
+
+    return focal_loss.mean()
 
 
 @dataclass
@@ -116,7 +149,8 @@ class DetectionLossFunction(torch.nn.Module):
         predicted_headings = predictions[:, 5:7]  # [B x 2 x H x W]
 
         # 3. Compute individual loss terms for heatmap, offset, size, and heading.
-        heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()
+        # heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()
+        heatmap_loss = focal_loss(target_heatmap, predicted_heatmap, self._heatmap_threshold)
         offset_loss = heatmap_weighted_mse_loss(
             target_offsets, predicted_offsets, target_heatmap, self._heatmap_threshold
         )
