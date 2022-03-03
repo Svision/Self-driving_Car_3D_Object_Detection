@@ -38,7 +38,7 @@ def create_heatmap(grid_coords: Tensor, center: Tensor, scale: float) -> Tensor:
 
     output_raw = torch.exp(-((x_coors - cx)**2 + (y_coors - cy)**2) / scale)
     # normalize
-    output = torch.clamp(output_raw, max=1)
+    output = output_raw / torch.max(output_raw)
 
     return output
 
