@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 
 def heatmap_weighted_mse_loss(
-    targets: Tensor, predictions: Tensor, heatmap: Tensor, heatmap_threshold: float
+        targets: Tensor, predictions: Tensor, heatmap: Tensor, heatmap_threshold: float
 ) -> Tensor:
     """Compute the mean squared error (MSE) loss between `predictions` and `targets`, weighted by a heatmap.
 
@@ -32,7 +32,7 @@ def heatmap_weighted_mse_loss(
     # DONE: Replace this stub code.
     N, C, H, W = targets.shape
     # step 1
-    mse_loss = torch.sum((predictions - targets) ** 2, dim=1)    # NxHxW
+    mse_loss = torch.sum((predictions - targets) ** 2, dim=1)  # NxHxW
     # step 2
     bit_mask = (heatmap > heatmap_threshold).long()  # Nx1xHxW
 
@@ -44,8 +44,8 @@ def heatmap_weighted_mse_loss(
 
 
 def focal_loss(
-    targets: Tensor, predictions: Tensor, alpha: float = 2, gamma: float = 4
-) -> float:
+        targets: Tensor, predictions: Tensor, alpha: float = 0.25, gamma: float = 2
+) -> Tensor:
     """Compute the focal loss between `predictions` and `targets`, weighted by a heatmap.
     Specifically, the heatmap-weighted focal loss can be computed as follows:
     1. Compute the focal loss between `predictions` and `targets` along the C dimension.
@@ -61,8 +61,7 @@ def focal_loss(
                the lower the loss for well-classified examples.
         alpha: give high weights to the rare class and small weights to the dominating or common class.
     Returns:
-        A scalar MSE loss between `predictions` and `targets`, aggregated as a
-            weighted average using the provided `heatmap`.
+        A scalar focal loss between `predictions` and `targets`.
     """
     # ref: https://amaarora.github.io/2020/06/29/FocalLoss.html
     alpha = torch.tensor([alpha, 1-alpha]).cuda()
@@ -71,10 +70,28 @@ def focal_loss(
     at = alpha.gather(0, targets.data.view(-1))
     pt = torch.exp(-BCE_loss)
     focal_loss = at * (1 - pt) ** gamma * BCE_loss
-
     focal_loss = focal_loss / torch.max(focal_loss)
 
     return focal_loss.mean()
+
+
+def focal_loss_v2(
+        targets: Tensor, predictions: Tensor, alpha: float = 2.0, beta: float = 4.0
+) -> Tensor:
+    # ref: https://arxiv.org/pdf/1904.07850.pdf
+    predictions = predictions / predictions.max()
+    loss = torch.zeros(predictions.shape).cuda()
+    positive_label_indices = targets == 1.0
+    negative_label_indices = targets < 1.0
+    loss[positive_label_indices] = (1 - predictions[positive_label_indices]) ** alpha * torch.log(
+        predictions[positive_label_indices])
+    loss[negative_label_indices] = (1 - targets[negative_label_indices]) ** beta * predictions[
+        negative_label_indices] ** alpha * torch.log(1 - predictions[negative_label_indices])
+
+    final_loss = torch.sum(loss, dim=1)
+    final_loss = final_loss / final_loss.max()
+
+    return - final_loss.mean()
 
 
 def negative_hard_mining(
@@ -146,7 +163,7 @@ class DetectionLossFunction(torch.nn.Module):
         self._heatmap_threshold = config.heatmap_threshold
 
     def forward(
-        self, predictions: Tensor, targets: Tensor
+            self, predictions: Tensor, targets: Tensor
     ) -> Tuple[torch.Tensor, DetectionLossMetadata]:
         """Compute the loss between the predicted detections and target labels.
 
@@ -174,7 +191,7 @@ class DetectionLossFunction(torch.nn.Module):
         # 3. Compute individual loss terms for heatmap, offset, size, and heading.
         # heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()
         # heatmap_loss = negative_hard_mining(target_heatmap, predicted_heatmap)
-        heatmap_loss = focal_loss(target_heatmap, predicted_heatmap)
+        heatmap_loss = focal_loss_v2(target_heatmap, predicted_heatmap)
         offset_loss = heatmap_weighted_mse_loss(
             target_offsets, predicted_offsets, target_heatmap, self._heatmap_threshold
         )
@@ -187,10 +204,10 @@ class DetectionLossFunction(torch.nn.Module):
 
         # 4. Aggregate losses using the configured weights.
         total_loss = (
-            heatmap_loss * self._heatmap_loss_weight
-            + offset_loss * self._offset_loss_weight
-            + size_loss * self._size_loss_weight
-            + heading_loss * self._heading_loss_weight
+                heatmap_loss * self._heatmap_loss_weight
+                + offset_loss * self._offset_loss_weight
+                + size_loss * self._size_loss_weight
+                + heading_loss * self._heading_loss_weight
         )
 
         loss_metadata = DetectionLossMetadata(
