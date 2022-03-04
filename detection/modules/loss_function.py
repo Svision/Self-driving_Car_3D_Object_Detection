@@ -44,7 +44,7 @@ def heatmap_weighted_mse_loss(
 
 
 def focal_loss(
-    targets: Tensor, predictions: Tensor, alpha: float = 2, gamma: float = 4
+    targets: Tensor, predictions: Tensor, alpha: float = 0.25, gamma: float = 2
 ) -> float:
     """Compute the focal loss between `predictions` and `targets`, weighted by a heatmap.
     Specifically, the heatmap-weighted focal loss can be computed as follows:
