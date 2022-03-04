@@ -81,8 +81,8 @@ def focal_loss_v2(
     # ref: https://arxiv.org/pdf/1904.07850.pdf
     predictions = predictions / predictions.max()
     loss = torch.zeros(predictions.shape).cuda()
-    positive_label_indices = targets == 1.0
-    negative_label_indices = targets < 1.0
+    positive_label_indices = torch.nonzero(targets == 1.0)
+    negative_label_indices = torch.nonzero(targets < 1.0)
     loss[positive_label_indices] = (1 - predictions[positive_label_indices]) ** alpha * torch.log(
         predictions[positive_label_indices])
     loss[negative_label_indices] = (1 - targets[negative_label_indices]) ** beta * predictions[
