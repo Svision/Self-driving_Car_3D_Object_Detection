@@ -42,7 +42,7 @@ def heatmap_weighted_mse_loss(
 
 
 def negative_hard_mining(
-        targets: Tensor, predictions: Tensor, k: int = 100
+        targets: Tensor, predictions: Tensor, k: int = 105
 ) -> Tensor:
     """
     Simplified method which compute the total loss over the top k values of the heatmap that have high individual
