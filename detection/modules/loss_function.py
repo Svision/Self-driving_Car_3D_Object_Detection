@@ -42,6 +42,26 @@ def heatmap_weighted_mse_loss(
     return mse_final
 
 
+def negative_hard_mining(
+        targets: Tensor, predictions: Tensor, k: int = 100
+) -> Tensor:
+    """
+    Simplified method which compute the total loss over the top k values of the heatmap that have high individual
+    losses.
+    Args:
+        targets: A [batch_size x C x H x W] tensor, containing the ground truth targets.
+        predictions: A [batch_size x C x H x W] tensor, containing the predictions.
+        k: top k value to calculate
+    Returns:
+        A scalar MSE loss between `predictions` and `targets`.
+    """
+    mse_loss = (targets - predictions) ** 2
+    hard_mining, indices = torch.topk(mse_loss.flatten(), k=k)
+
+    hard_mining_final = hard_mining.mean()
+    return hard_mining_final
+
+
 @dataclass
 class DetectionLossConfig:
     """Detection loss function configuration.
@@ -116,7 +136,7 @@ class DetectionLossFunction(torch.nn.Module):
         predicted_headings = predictions[:, 5:7]  # [B x 2 x H x W]
 
         # 3. Compute individual loss terms for heatmap, offset, size, and heading.
-        heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()
+        heatmap_loss = negative_hard_mining(target_heatmap, predicted_heatmap)
         offset_loss = heatmap_weighted_mse_loss(
             target_offsets, predicted_offsets, target_heatmap, self._heatmap_threshold
         )
