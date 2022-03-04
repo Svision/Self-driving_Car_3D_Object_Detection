@@ -1,6 +1,24 @@
 from torch import Tensor, nn
 
 
+class SELayer(nn.Module):
+    # ref: https://github.com/hujie-frank/SENet
+    def __init__(self, channel, reduction=16):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
 class ResidualBlock(nn.Module):
     """Residual Block.
 
@@ -28,6 +46,8 @@ class ResidualBlock(nn.Module):
         )
         self.relu = nn.ReLU()
 
+        self.se = SELayer(channels, 8)
+
     def forward(self, x: Tensor) -> Tensor:
         """Perform a forward pass of the residual block.
 
@@ -40,6 +60,7 @@ class ResidualBlock(nn.Module):
         residual = x
         x = self.conv_block1(x)
         x = self.conv_block2(x)
+        x = self.se(x)
         x = x + residual
         out = self.relu(x)
         return out
