@@ -116,7 +116,6 @@ def compute_precision_recall_curve(
 
         # for each detection, generate the Matching class
         for k, detection_centroid in enumerate(detections.centroids):
-            print("detection_centroid:", k, detection_centroid)
             if to_key(detection_centroid) not in detection_closest_label_map:
                 continue
             closest_label = detection_closest_label_map[to_key(detection_centroid)]
