@@ -79,19 +79,15 @@ def focal_loss_v2(
         targets: Tensor, predictions: Tensor, alpha: float = 2.0, beta: float = 4.0
 ) -> Tensor:
     # ref: https://arxiv.org/pdf/1904.07850.pdf
-    predictions = predictions / predictions.max()
-    loss = torch.zeros(predictions.shape).cuda()
-    positive_label_indices = torch.nonzero(targets == 1.0)
-    negative_label_indices = torch.nonzero(targets < 1.0)
-    loss[positive_label_indices] = (1 - predictions[positive_label_indices]) ** alpha * torch.log(
-        predictions[positive_label_indices])
-    loss[negative_label_indices] = (1 - targets[negative_label_indices]) ** beta * predictions[
-        negative_label_indices] ** alpha * torch.log(1 - predictions[negative_label_indices])
+    positive_label_map = (targets == 1.0).long()
+    negative_label_map = (targets < 1.0).long()
+    positive_focal_loss = (1 - predictions) ** alpha * torch.log(predictions)
+    negative_focal_loss = (1 - targets) ** beta * (predictions ** alpha) * torch.log(1 - predictions)
+    focal_loss = (positive_focal_loss * positive_label_map) + (negative_focal_loss * negative_label_map)
 
-    final_loss = torch.sum(loss, dim=1)
-    final_loss = final_loss / final_loss.max()
+    final_loss = torch.sum(focal_loss, dim=1)
 
-    return - final_loss.mean()
+    return 0 - torch.sum(final_loss) / torch.sum(positive_label_map)
 
 
 def negative_hard_mining(
