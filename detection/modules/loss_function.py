@@ -44,37 +44,18 @@ def heatmap_weighted_mse_loss(
 
 
 def focal_loss(
-    targets: Tensor, predictions: Tensor, alpha: float = 0.25, gamma: float = 2
-) -> float:
-    """Compute the focal loss between `predictions` and `targets`, weighted by a heatmap.
-    Specifically, the heatmap-weighted focal loss can be computed as follows:
-    1. Compute the focal loss between `predictions` and `targets` along the C dimension.
-        This should give us a [batch_size x H x W] tensor `mse_loss`.
-    2. Compute a binary mask based on whether the values of `heatmap` exceeds `heatmap_threshold`.
-        This should give us a [batch_size x H x W] tensor `mask`.
-    3. Compute the mean of `focal_loss` weighted by `heatmap` and masked by `mask`.
-        This gives us our final scalar loss.
-    Args:
-        targets: A [batch_size x C x H x W] tensor, containing the ground truth targets.
-        predictions: A [batch_size x C x H x W] tensor, containing the predictions.
-        gamma: controls the shape of the curve. The higher the value of γ,
-               the lower the loss for well-classified examples.
-        alpha: give high weights to the rare class and small weights to the dominating or common class.
-    Returns:
-        A scalar MSE loss between `predictions` and `targets`, aggregated as a
-            weighted average using the provided `heatmap`.
-    """
-    # ref: https://amaarora.github.io/2020/06/29/FocalLoss.html
-    alpha = torch.tensor([alpha, 1-alpha]).cuda()
-    BCE_loss = F.binary_cross_entropy_with_logits(predictions, targets)
-    targets = targets.type(torch.long)
-    at = alpha.gather(0, targets.data.view(-1))
-    pt = torch.exp(-BCE_loss)
-    focal_loss = at * (1 - pt) ** gamma * BCE_loss
+        targets: Tensor, predictions: Tensor, alpha: float = 2.0, beta: float = 4.0
+) -> Tensor:
+    # ref: https://arxiv.org/pdf/1904.07850.pdf
+    positive_label_map = (targets == 1.0).long()
+    negative_label_map = (targets < 1.0).long()
+    positive_focal_loss = (1 - predictions) ** alpha * torch.log(predictions)
+    negative_focal_loss = (1 - targets) ** beta * (predictions ** alpha) * torch.log(1 - predictions)
+    focal_loss = (positive_focal_loss * positive_label_map) + (negative_focal_loss * negative_label_map)
 
-    focal_loss = focal_loss / torch.max(focal_loss)
+    final_loss = torch.sum(focal_loss, dim=1)
 
-    return focal_loss.mean()
+    return 0 - torch.sum(final_loss) / torch.sum(positive_label_map)
 
 
 def negative_hard_mining(
@@ -92,8 +73,6 @@ def negative_hard_mining(
     """
     mse_loss = (targets - predictions) ** 2
     hard_mining, indices = torch.topk(mse_loss.flatten(), k=k)
-
-    hard_mining = hard_mining / torch.max(hard_mining)
 
     return hard_mining.mean()
 
@@ -172,7 +151,7 @@ class DetectionLossFunction(torch.nn.Module):
         predicted_headings = predictions[:, 5:7]  # [B x 2 x H x W]
 
         # 3. Compute individual loss terms for heatmap, offset, size, and heading.
-        # heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()
+        # heatmap_loss = ((target_heatmap - predicted_heatmap) ** 2).mean()  # original
         # heatmap_loss = negative_hard_mining(target_heatmap, predicted_heatmap)
         heatmap_loss = focal_loss(target_heatmap, predicted_heatmap)
         offset_loss = heatmap_weighted_mse_loss(
